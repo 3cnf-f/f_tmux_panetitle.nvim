@@ -1,8 +1,10 @@
-local M = {} -- Make sure this line is exactly "local M = {}"
+local M = {}
 
 M.setup = function()
     
-    -- 1. Auto-rename logic (Pane 0)
+    -- ====================================================
+    -- PART 1: Auto-Rename Pane 0 (Your existing logic)
+    -- ====================================================
     local function update_pane_0()
         if not vim.env.TMUX then return end
         
@@ -19,25 +21,36 @@ M.setup = function()
         vim.fn.system({"tmux", "select-pane", "-t", "0", "-T", new_title})
     end
 
-    -- Auto-command setup
     vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter", "TabEnter" }, {
         pattern = "*",
         callback = update_pane_0,
     })
 
-    -- 2. "Send Poop" Logic (Pane 2)
+    -- ====================================================
+    -- PART 2: Run Python in Pane 2 (New Logic)
+    -- ====================================================
     vim.api.nvim_create_user_command("FTmuxRun", function()
+        -- 1. Check: Are we in Tmux?
         if not vim.env.TMUX then 
-            print("❌ Not in Tmux")
+            print("❌ Error: Not in Tmux")
             return 
         end
 
-        -- Focus Pane 2 and type text
-        vim.fn.system({"tmux", "select-pane", "-t", "2"})
-        vim.fn.system({"tmux", "send-keys", "-t", "2", "poop"}) -- Add "C-m" here to hit Enter
-        
-        print("✅ Sent 'poop' to Pane 2")
-    end, {})
-end
+        -- 2. Check: Is this a Python file?
+        if vim.fn.expand("%:e") ~= "py" then
+            print("❌ Error: Not a Python file")
+            return
+        end
 
-return M
+        -- 3. Prepare Command
+        local filename = vim.fn.expand("%:t") -- Gets "script.py"
+        local command = "python3 " .. filename
+
+        -- 4. Execute in Pane 2
+        -- Focus Pane 2
+        vim.fn.system({"tmux", "select-pane", "-t", "2"})
+        
+        -- Send keys AND hit Enter ("C-m" stands for Carriage Return/Enter)
+        vim.fn.system({"tmux", "send-keys", "-t", "2", command, "C-m"})
+        
+        print("🚀 Running: " .. command .. "
