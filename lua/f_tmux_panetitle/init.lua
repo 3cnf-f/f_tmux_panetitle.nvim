@@ -2,37 +2,35 @@ local M = {}
 
 M.setup = function()
     
-    -- The core logic function
     local function update_pane_0()
-        -- 1. Check for Tmux
-        if not vim.env.TMUX then return end
+        -- 1. First Check: Are we in Tmux?
+        -- If not, stop immediately. Do NOT set any title.
+        if not vim.env.TMUX then 
+            return 
+        end
 
-        -- 2. Check for Python extension
-        -- We silently return (do nothing) if it's not a py file, 
-        -- so we don't spam errors while navigating other files.
-        if vim.fn.expand("%:e") ~= "py" then return end
-
-        -- 3. Prepare the title
+        -- 2. Get file info
         local filename = vim.fn.expand("%:t")
-        local new_title = "f_tmux:" .. filename
+        local extension = vim.fn.expand("%:e")
+        local new_title = ""
 
-        -- 4. Execute Tmux Command targeting Pane 0
-        -- -t 0  : Targets pane 0 specifically
-        -- -T    : Sets the title
+        -- 3. Logic: Check for Python
+        if extension == "py" then
+            new_title = "f_tmux:" .. filename
+        else
+            -- If in Tmux but NOT a python file
+            new_title = "not_py"
+        end
+
+        -- 4. Execute Tmux Command on Pane 0
         vim.fn.system({"tmux", "select-pane", "-t", "0", "-T", new_title})
     end
 
-    -- AUTOCOMMAND: Runs automatically when you enter a buffer
-    vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter" }, {
-        pattern = "*", -- Triggers on all files (logic inside handles the .py check)
+    -- Run automatically on file changes
+    vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter", "TabEnter" }, {
+        pattern = "*",
         callback = update_pane_0,
     })
-
-    -- Manual command (just in case you need to force it)
-    vim.api.nvim_create_user_command("FTmuxSet", function()
-        update_pane_0()
-        print("✅ Forced update of Tmux Pane 0")
-    end, {})
 end
 
 return M
