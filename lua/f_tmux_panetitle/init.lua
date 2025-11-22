@@ -2,22 +2,12 @@ local M = {}
 
 M.setup = function()
     
-    -- ====================================================
-    -- PART 1: Auto-Rename Pane 0 (Your existing logic)
-    -- ====================================================
+    -- [PART 1] Auto-Rename Pane 0 (Keep this as is)
     local function update_pane_0()
         if not vim.env.TMUX then return end
-        
         local extension = vim.fn.expand("%:e")
         local filename = vim.fn.expand("%:t")
-        local new_title = ""
-
-        if extension == "py" then
-            new_title = "f_tmux:" .. filename
-        else
-            new_title = "not_py"
-        end
-
+        local new_title = (extension == "py") and ("f_tmux:" .. filename) or "not_py"
         vim.fn.system({"tmux", "select-pane", "-t", "0", "-T", new_title})
     end
 
@@ -26,34 +16,33 @@ M.setup = function()
         callback = update_pane_0,
     })
 
-    -- ====================================================
-    -- PART 2: Run Python in Pane 2 (New Logic)
-    -- ====================================================
+    -- [PART 2] Run Python with Zoom and Clear
     vim.api.nvim_create_user_command("FTmuxRun", function()
-        -- 1. Check: Are we in Tmux?
-        if not vim.env.TMUX then 
-            print("❌ Error: Not in Tmux")
-            return 
-        end
+        -- 1. Checks
+        if not vim.env.TMUX then print("❌ Not in Tmux") return end
+        if vim.fn.expand("%:e") ~= "py" then print("❌ Not a Python file") return end
 
-        -- 2. Check: Is this a Python file?
-        if vim.fn.expand("%:e") ~= "py" then
-            print("❌ Error: Not a Python file")
-            return
-        end
-
-        -- 3. Prepare Command
-        local filename = vim.fn.expand("%:t") -- Gets "script.py"
+        local filename = vim.fn.expand("%:t")
         local command = "python3 " .. filename
 
-        -- 4. Execute in Pane 2
-        -- Focus Pane 2
-        vim.fn.system({"tmux", "select-pane", "-t", "2"})
+        -- 2. The Tmux Sequence
         
-        -- Send keys AND hit Enter ("C-m" stands for Carriage Return/Enter)
+        -- A. Focus Pane 2
+        vim.fn.system({"tmux", "select-pane", "-t", "2"})
+
+        -- B. Toggle Zoom (Equivalent to Prefix + z)
+        -- "-Z" tells tmux to zoom/unzoom the target pane
+        vim.fn.system({"tmux", "resize-pane", "-Z", "-t", "2"})
+
+        -- C. Clean the terminal
+        -- "C-l" = Clear Screen (Ctrl+l)
+        -- "C-u" = Clear Line (Ctrl+u) - removes any junk text on the prompt
+        vim.fn.system({"tmux", "send-keys", "-t", "2", "C-l", "C-u"})
+
+        -- D. Run the command
         vim.fn.system({"tmux", "send-keys", "-t", "2", command, "C-m"})
         
-        print("🚀 Running: " .. command .. " in Pane 2")
+        print("🚀 Zoomed & Running: " .. filename)
     end, {})
 end
 
