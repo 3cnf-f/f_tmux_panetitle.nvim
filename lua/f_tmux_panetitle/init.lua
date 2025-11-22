@@ -2,7 +2,7 @@ local M = {}
 
 M.setup = function()
     
-    -- [PART 1] Auto-Rename Pane 0 (Keep this as is)
+    -- [PART 1] Auto-Rename Pane 0 (Keep as is)
     local function update_pane_0()
         if not vim.env.TMUX then return end
         local extension = vim.fn.expand("%:e")
@@ -16,33 +16,37 @@ M.setup = function()
         callback = update_pane_0,
     })
 
-    -- [PART 2] Run Python with Zoom and Clear
+    -- [PART 2] Run -> Wait -> Unzoom -> Return
     vim.api.nvim_create_user_command("FTmuxRun", function()
         -- 1. Checks
         if not vim.env.TMUX then print("❌ Not in Tmux") return end
         if vim.fn.expand("%:e") ~= "py" then print("❌ Not a Python file") return end
 
         local filename = vim.fn.expand("%:t")
-        local command = "python3 " .. filename
 
-        -- 2. The Tmux Sequence
+        -- 2. Construct the Bash Chain
+        -- We use semicolons (;) to ensure the next command runs even if Python errors out.
+        -- We send tmux commands FROM the shell to control the window state.
+        local bash_chain = "python3 " .. filename .. 
+                           "; echo ''; read -p 'Press Enter to return...' dummy" .. 
+                           "; tmux resize-pane -Z -t 2" .. 
+                           "; tmux select-pane -t 0"
+
+        -- 3. The Initial Tmux Sequence (From Neovim)
         
         -- A. Focus Pane 2
         vim.fn.system({"tmux", "select-pane", "-t", "2"})
 
-        -- B. Toggle Zoom (Equivalent to Prefix + z)
-        -- "-Z" tells tmux to zoom/unzoom the target pane
+        -- B. Zoom Pane 2 (Make it full screen)
         vim.fn.system({"tmux", "resize-pane", "-Z", "-t", "2"})
 
-        -- C. Clean the terminal
-        -- "C-l" = Clear Screen (Ctrl+l)
-        -- "C-u" = Clear Line (Ctrl+u) - removes any junk text on the prompt
+        -- C. Clean the terminal (Ctrl+l clear screen, Ctrl+u clear line)
         vim.fn.system({"tmux", "send-keys", "-t", "2", "C-l", "C-u"})
 
-        -- D. Run the command
-        vim.fn.system({"tmux", "send-keys", "-t", "2", command, "C-m"})
+        -- D. Send the Chain and Hit Enter
+        vim.fn.system({"tmux", "send-keys", "-t", "2", bash_chain, "C-m"})
         
-        print("🚀 Zoomed & Running: " .. filename)
+        print("🚀 Running " .. filename .. " (Zoomed)")
     end, {})
 end
 
