@@ -53,4 +53,8 @@ M.setup = function()
         -- Send keys AND hit Enter ("C-m" stands for Carriage Return/Enter)
         vim.fn.system({"tmux", "send-keys", "-t", "2", command, "C-m"})
         
-        print("🚀 Running: " .. command .. "
+        print("🚀 Running: " .. command .. " in Pane 2")
+    end, {})
+end
+
+return M
