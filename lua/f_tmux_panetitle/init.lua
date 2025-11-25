@@ -22,12 +22,14 @@ M.setup = function()
         if not vim.env.TMUX then print("❌ Not in Tmux") return end
         if vim.fn.expand("%:e") ~= "py" then print("❌ Not a Python file") return end
 
+        -- CHANGE 1: Get the full absolute path for execution
+        local full_path = vim.fn.expand("%:p")
+        -- Keep just the filename for the pretty print message at the end
         local filename = vim.fn.expand("%:t")
 
         -- 2. Construct the Bash Chain
-        -- We use semicolons (;) to ensure the next command runs even if Python errors out.
-        -- We send tmux commands FROM the shell to control the window state.
-        local bash_chain = "python3 " .. filename .. 
+        -- CHANGE 2: Use full_path and wrap it in single quotes to handle spaces in folder names
+        local bash_chain = "python3 '" .. full_path .. "'" .. 
                            "; echo ''; read -p 'Press Enter to return...' dummy" .. 
                            "; tmux resize-pane -Z -t 2" .. 
                            "; tmux select-pane -t 0"
