@@ -3,17 +3,10 @@ local M = {}
 M.setup = function()
     
     -- [PART 1] Auto-Rename Pane 0 (Keep as is)
-    local function update_pane_0()
-        if not vim.env.TMUX then return end
-        local extension = vim.fn.expand("%:e")
-        local filename = vim.fn.expand("%:t")
-        local new_title = (extension == "py") and ("f_tmux:" .. filename) or "not_py"
-        vim.fn.system({"tmux", "select-pane", "-t", "0", "-T", new_title})
-    end
+    
 
     vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter", "TabEnter" }, {
         pattern = "*",
-        callback = update_pane_0,
     })
 
     -- [PART 2] Run -> Wait -> Unzoom -> Return
