@@ -2,123 +2,123 @@ local M = {}
 
 -- === HELPER: Find Git Root ===
 local function get_git_root()
-    -- Ask git for the top-level directory
-    local handle = io.popen("git rev-parse --show-toplevel 2> /dev/null")
-    if not handle then return nil end
-    local result = handle:read("*a")
-    handle:close()
-    
-    if not result or result == "" then return nil end
-    return result:gsub("%s+", "") -- Trim whitespace/newlines
+  local handle = io.popen("git rev-parse --show-toplevel 2> /dev/null")
+  if not handle then return nil end
+  local result = handle:read("*a")
+  handle:close()
+  if not result or result == "" then return nil end
+  return result:gsub("%s+", "")
 end
 
 -- === HELPER: The Main Execution Engine ===
--- Handles finding panes, zooming, running code, and returning.
-local function execute_in_tmux(full_path, display_name)
-    -- 1. VALIDATION: Tmux Check
-    if not vim.env.TMUX then 
-        print("❌ Not in Tmux") 
-        return 
+-- Now takes a raw bash command string instead of assuming python
+local function execute_in_tmux(bash_cmd, display_name)
+  if not vim.env.TMUX then
+    print("❌ Not in Tmux")
+    return
+  end
+
+  local runner_name = "test_pane"
+  local editor_name = "editor_pane"
+
+  local runner_id, editor_id
+
+  local panes_output = vim.fn.system({"tmux", "list-panes", "-a", "-F", "#{pane_id}:#{pane_title}"})
+  for line in panes_output:gmatch("[^\r\n]+") do
+    local id, title = line:match("^(%%%d+):(.*)$")
+    if title == runner_name then
+      runner_id = id
+    elseif title == editor_name then
+      editor_id = id
     end
+  end
 
-    -- 2. PANE DISCOVERY
-    local runner_name = "test_pane"
-    local editor_name = "editor_pane"
-    
-    local runner_id = nil
-    local editor_id = nil
+  if not runner_id then
+    print("❌ Could not find pane: '" .. runner_name .. "'")
+    return
+  end
 
-    -- We use the exact format you verified: ID:Title
-    local panes_output = vim.fn.system({"tmux", "list-panes", "-a", "-F", "#{pane_id}:#{pane_title}"})
+  if not editor_id then
+    editor_id = vim.fn.system({"tmux", "display-message", "-p", "#{pane_id}"}):gsub("%s+", "")
+  end
 
-    -- Match IDs to Titles using the colon separator
-    for line in panes_output:gmatch("[^\r\n]+") do
-        -- Regex: Capture ID (starting with %), then skip colon, then capture Title
-        local id, title = line:match("^(%%%d+):(.*)$")
-        if title == runner_name then
-            runner_id = id
-        elseif title == editor_name then
-            editor_id = id
-        end
-    end
+  -- Chain: run the command → blank line → wait for Enter → unzoom → go back to editor
+  local bash_chain = bash_cmd ..
+    "; echo ''; read -p 'Press Enter to return...' dummy" ..
+    "; tmux resize-pane -Z -t " .. runner_id ..
+    "; tmux select-pane -t " .. editor_id
 
-    -- 3. ERROR HANDLING
-    if not runner_id then
-        print("❌ Could not find pane: '" .. runner_name .. "'")
-        return
-    end
+  vim.fn.system({"tmux", "select-pane", "-t", runner_id})
+  vim.fn.system({"tmux", "resize-pane", "-Z", "-t", runner_id})
+  vim.fn.system({"tmux", "send-keys", "-t", runner_id, "C-l", "C-u"})
+  vim.fn.system({"tmux", "send-keys", "-t", runner_id, bash_chain, "C-m"})
 
-    -- Fallback: If editor_pane isn't found, default to current pane
-    if not editor_id then
-        editor_id = vim.fn.system({"tmux", "display-message", "-p", "#{pane_id}"}):gsub("%s+", "")
-    end
-
-    -- 4. BUILD COMMANDS (Zoom -> Run -> Wait -> Unzoom)
-    -- Using ; as separator to chain bash commands
-    local bash_chain = "python3 '" .. full_path .. "'" .. 
-                       "; echo ''; read -p 'Press Enter to return...' dummy" .. 
-                       "; tmux resize-pane -Z -t " .. runner_id .. 
-                       "; tmux select-pane -t " .. editor_id
-
-    -- 5. EXECUTE TMUX SEQUENCE
-    -- A. Select & Zoom Runner
-    vim.fn.system({"tmux", "select-pane", "-t", runner_id})
-    vim.fn.system({"tmux", "resize-pane", "-Z", "-t", runner_id})
-    
-    -- B. Clear Screen (Ctrl+l, Ctrl+u)
-    vim.fn.system({"tmux", "send-keys", "-t", runner_id, "C-l", "C-u"})
-    
-    -- C. Send Command chain + Enter
-    vim.fn.system({"tmux", "send-keys", "-t", runner_id, bash_chain, "C-m"})
-    
-    print("🚀 Running " .. display_name .. " in " .. runner_name)
+  print("🚀 Running " .. display_name .. " in " .. runner_name)
 end
 
+-- Helper to get current line or visual selection (works for both normal & visual)
+local function get_code_to_run()
+  local mode = vim.fn.mode()
+  if mode == "v" or mode == "V" or mode == "\22" then  -- visual / visual-line / visual-block
+    local _, csrow, cscol, _ = unpack(vim.fn.getpos("'<"))
+    local _, cerow, cecol, _ = unpack(vim.fn.getpos("'>"))
+    local lines = vim.fn.getline(csrow, cerow)
+    if #lines == 0 then return "" end
+    lines[#lines] = string.sub(lines[#lines], 1, cecol)
+    lines[1] = string.sub(lines[1], cscol)
+    return table.concat(lines, "\n")
+  else
+    return vim.api.nvim_get_current_line()
+  end
+end
 
 M.setup = function()
-    -- === COMMAND 1: Run Current File (:FTmuxRun) ===
-    vim.api.nvim_create_user_command("FTmuxRun", function()
-        -- Only run if it's a python file
-        if vim.fn.expand("%:e") ~= "py" then 
-            print("❌ Not a Python file") 
-            return 
-        end
-        
-        local full_path = vim.fn.expand("%:p")
-        local filename = vim.fn.expand("%:t")
-        
-        execute_in_tmux(full_path, filename)
-    end, {})
+  -- === :FTmuxRun  (leader RT)  – now context-aware ===
+  vim.api.nvim_create_user_command("FTmuxRun", function()
+    local ft = vim.bo.filetype
+    local ext = vim.fn.expand("%:e")
 
-    -- === COMMAND 2: Run Git Root Main (:FTmuxRunRoot) ===
-    vim.api.nvim_create_user_command("FTmuxRunRoot", function(opts)
-        local root = get_git_root()
-        if not root then
-            print("❌ Not in a git repository")
-            return
-        end
+    if ft == "python" or ext == "py" then
+      local full_path = vim.fn.expand("%:p")
+      local filename = vim.fn.expand("%:t")
+      -- Keep the original quoting style you already verified
+      execute_in_tmux("python3 '" .. full_path .. "'", filename)
 
-        -- Use argument if provided, otherwise default to /main.py
-        local relative_path = opts.args
-        if relative_path == "" then 
-            relative_path = "/main.py" 
-        end
-        
-        -- Ensure path starts with /
-        if relative_path:sub(1,1) ~= "/" then 
-            relative_path = "/" .. relative_path 
-        end
+    elseif ft == "sh" or ft == "bash" or ext == "sh" then
+      local code = get_code_to_run()
+      if code == "" then
+        print("❌ Nothing to run")
+        return
+      end
+      -- Proper escaping so quotes, $, etc. survive
+      local escaped = vim.fn.shellescape(code)
+      execute_in_tmux("bash -c " .. escaped, "shell-line")
 
-        local full_path = root .. relative_path
+    else
+      print("❌ FTmuxRun only supports Python (whole file) or Shell (current line / selection)")
+    end
+  end, { range = true })  -- allows visual ranges
 
-        -- Verify file exists
-        if vim.fn.filereadable(full_path) == 0 then
-            print("⚠️ File not found: " .. full_path)
-            return
-        end
+  -- Keep the root variant exactly as it was (still Python-only)
+  vim.api.nvim_create_user_command("FTmuxRunRoot", function(opts)
+    local root = get_git_root()
+    if not root then
+      print("❌ Not in a git repository")
+      return
+    end
 
-        execute_in_tmux(full_path, "ROOT" .. relative_path)
-    end, { nargs = "?" })
+    local relative_path = opts.args
+    if relative_path == "" then relative_path = "/main.py" end
+    if relative_path:sub(1, 1) \~= "/" then relative_path = "/" .. relative_path end
+
+    local full_path = root .. relative_path
+    if vim.fn.filereadable(full_path) == 0 then
+      print("⚠️ File not found: " .. full_path)
+      return
+    end
+
+    execute_in_tmux("python3 '" .. full_path .. "'", "ROOT" .. relative_path)
+  end, { nargs = "?" })
 end
 
 return M
