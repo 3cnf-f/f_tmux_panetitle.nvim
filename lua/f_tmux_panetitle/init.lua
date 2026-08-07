@@ -109,7 +109,7 @@ M.setup = function()
 
     local relative_path = opts.args
     if relative_path == "" then relative_path = "/main.py" end
-    if relative_path:sub(1, 1) \~= "/" then relative_path = "/" .. relative_path end
+    if relative_path:sub(1, 1) ~= "/" then relative_path = "/" .. relative_path end
 
     local full_path = root .. relative_path
     if vim.fn.filereadable(full_path) == 0 then
